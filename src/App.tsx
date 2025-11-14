@@ -20,7 +20,7 @@ function App() {
 
   return (
     <div className="relative">
-      {currentView !== 'home' && currentView !== 'display' && (
+      {currentView !== 'home'  && (
         <button
           onClick={handleBack}
           className="fixed top-6 left-6 z-50 bg-gray-800 hover:bg-gray-700 text-white p-3 rounded-full border border-gray-600 shadow-lg transition-all duration-200 hover:scale-110"

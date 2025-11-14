@@ -13,23 +13,31 @@ export function useQueue() {
 
   const fetchStatus = async () => {
     try {
+      console.log('🔄 Fetching queue status...');
       const data = await getQueueStatus();
+      console.log('✅ Queue status:', data);
       setStatus(data);
     } catch (error) {
-      console.error('Error fetching queue status:', error);
+      console.error('❌ Error fetching queue status:', error);
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
+    console.log('🎯 useQueue hook mounted');
     fetchStatus();
 
+    console.log('👂 Setting up realtime subscriptions...');
     const unsubscribe = subscribeToQueueUpdates(() => {
+      console.log('🔔 Realtime update received! Refreshing...');
       fetchStatus();
     });
 
-    return unsubscribe;
+    return () => {
+      console.log('🔌 useQueue hook unmounting, unsubscribing...');
+      unsubscribe();
+    };
   }, []);
 
   return { status, loading, refresh: fetchStatus };

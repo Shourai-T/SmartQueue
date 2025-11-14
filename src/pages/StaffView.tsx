@@ -1,11 +1,12 @@
 import { useState } from 'react';
 import { UserCog, Bell, Users } from 'lucide-react';
 import { useQueue } from '../hooks/useQueue';
-import { callNext } from '../services/queueService';
+import { callNext, resetQueue } from '../services/queueService';
 
 export default function StaffView() {
-  const { status, loading } = useQueue();
+  const { status, loading, refresh } = useQueue();
   const [calling, setCalling] = useState(false);
+  const [resetting, setResetting] = useState(false);
 
   const handleCallNext = async () => {
     if (status.waiting.length === 0) return;
@@ -17,6 +18,25 @@ export default function StaffView() {
       console.error('Error calling next:', error);
     } finally {
       setCalling(false);
+    }
+  };
+
+  const handleReset = async () => {
+    if (!confirm('Bạn có chắc muốn reset toàn bộ hàng đợi?')) return;
+
+    setResetting(true);
+    try {
+      await resetQueue();
+      console.log('✅ Đã reset hàng đợi');
+
+      setTimeout(async () => {
+        console.log('🔄 Force refreshing after reset...');
+        await refresh();
+      }, 500);
+    } catch (error) {
+      console.error('❌ Lỗi reset:', error);
+    } finally {
+      setResetting(false);
     }
   };
 
@@ -95,6 +115,13 @@ export default function StaffView() {
               <Bell className="w-6 h-6" />
               {calling ? 'Đang gọi...' : status.waiting.length === 0 ? 'Không có khách hàng' : 'GỌI TIẾP THEO'}
             </button>
+            <button
+                onClick={handleReset}
+                disabled={resetting}
+                className="bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-700 hover:to-pink-700 disabled:from-gray-600 disabled:to-gray-700 text-white font-bold py-4 px-6 rounded-xl transition-all disabled:cursor-not-allowed"
+              >
+                {resetting ? 'Đang reset...' : 'RESET'}
+              </button>
 
             <div className="grid grid-cols-3 gap-4 pt-4 border-t border-gray-700">
               <div className="text-center">
