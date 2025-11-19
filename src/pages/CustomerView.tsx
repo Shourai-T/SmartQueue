@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { User, Ticket } from 'lucide-react';
 import { useQueue } from '../hooks/useQueue';
 import { takeNumber } from '../services/queueService';
@@ -19,6 +19,18 @@ export default function CustomerView() {
       setTaking(false);
     }
   };
+
+  // THÊM: Auto hide sau 5 giây
+  useEffect(() => {
+    if (myNumber) {
+      const timer = setTimeout(() => {
+        setMyNumber(null);
+      }, 5000); // 5 giây
+
+      // Cleanup khi component unmount hoặc myNumber thay đổi
+      return () => clearTimeout(timer);
+    }
+  }, [myNumber]);
 
   if (loading) {
     return (
@@ -70,8 +82,10 @@ export default function CustomerView() {
                 <div className="text-center mt-3 text-gray-300">
                   {myNumber === status.waiting[0] ? (
                     <span className="text-emerald-400 font-semibold">Bạn sắp được phục vụ!</span>
+                  ) : status.waiting.includes(myNumber) ? (
+                    <span>Còn {status.waiting.indexOf(myNumber)} người trước bạn</span>
                   ) : (
-                    <span>Còn {status.waiting.indexOf(myNumber) + 1} người trước bạn</span>
+                    <span className="text-gray-500">Số của bạn đã được gọi</span>
                   )}
                 </div>
               </div>
