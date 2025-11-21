@@ -1,38 +1,73 @@
-import { useState } from 'react';
-import { ArrowLeft } from 'lucide-react';
-import HomePage from './pages/HomePage';
-import CustomerView from './pages/CustomerView';
-import StaffView from './pages/StaffView';
-import PublicDisplay from './pages/PublicDisplay';
+import { useState } from "react";
+import { ArrowLeft } from "lucide-react";
+import HomePage from "./pages/HomePage";
+import CustomerView from "./pages/CustomerView";
+import StaffView from "./pages/StaffView";
+import PublicDisplay from "./pages/PublicDisplay";
+import LoginPage from "./pages/LoginPage";
+import AdminPanel from "./pages/AdminPanel";
+import { useAuth } from "./hooks/useAuth";
+import { authService } from "./services/authService";
 
-type View = 'home' | 'customer' | 'staff' | 'display';
+type View =
+  | "home"
+  | "customer"
+  | "staff"
+  | "display"
+  | "staff-login"
+  | "admin-login"
+  | "admin-panel";
 
 function App() {
-  const [currentView, setCurrentView] = useState<View>('home');
+  const [currentView, setCurrentView] = useState<View>("home");
+  useAuth();
 
   const handleNavigate = (view: View) => {
     setCurrentView(view);
   };
 
   const handleBack = () => {
-    setCurrentView('home');
+    setCurrentView("home");
+  };
+
+  const handleStaffLoginSuccess = async () => {
+    const current = await authService.getCurrentUser();
+    if (current?.role === "admin") {
+      setCurrentView("admin-panel");
+    } else {
+      setCurrentView("staff");
+    }
+  };
+
+  const handleLogout = () => {
+    setCurrentView("home");
   };
 
   return (
     <div className="relative">
-      {currentView !== 'home'  && (
-        <button
-          onClick={handleBack}
-          className="fixed top-6 left-6 z-50 bg-gray-800 hover:bg-gray-700 text-white p-3 rounded-full border border-gray-600 shadow-lg transition-all duration-200 hover:scale-110"
-        >
-          <ArrowLeft className="w-6 h-6" />
-        </button>
-      )}
+      {currentView !== "home" &&
+        currentView !== "display" &&
+        currentView !== "staff-login" &&
+        currentView !== "admin-login" && (
+          <button
+            onClick={handleBack}
+            className="fixed top-6 left-6 z-50 bg-gray-800 hover:bg-gray-700 text-white p-3 rounded-full border border-gray-600 shadow-lg transition-all duration-200 hover:scale-110"
+          >
+            <ArrowLeft className="w-6 h-6" />
+          </button>
+        )}
 
-      {currentView === 'home' && <HomePage onNavigate={handleNavigate} />}
-      {currentView === 'customer' && <CustomerView />}
-      {currentView === 'staff' && <StaffView />}
-      {currentView === 'display' && <PublicDisplay />}
+      {currentView === "home" && <HomePage onNavigate={handleNavigate} />}
+      {currentView === "customer" && <CustomerView />}
+      {currentView === "staff-login" && (
+        <LoginPage onLoginSuccess={handleStaffLoginSuccess} />
+      )}
+      {currentView === "staff" && <StaffView />}
+      {currentView === "admin-login" && (
+        <LoginPage onLoginSuccess={handleStaffLoginSuccess} />
+      )}
+      {currentView === "admin-panel" && <AdminPanel onLogout={handleLogout} />}
+      {currentView === "display" && <PublicDisplay />}
     </div>
   );
 }
