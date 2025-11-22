@@ -1,28 +1,57 @@
 import { useEffect, useState } from 'react';
 import { Bell } from 'lucide-react';
-import { useQueue } from '../hooks/useQueue';
+import { io, Socket } from "socket.io-client";
+import axios from 'axios';
+
 
 export default function PublicDisplay() {
-  const { status, loading } = useQueue();
   const [shouldAnimate, setShouldAnimate] = useState(false);
-  const [prevNumber, setPrevNumber] = useState(0);
+  const [status, setStatus] = useState({
+    currentNumber: 0,
+    nextNumbers: [],
+    waitingCount: 0
+  });
 
+  
+  // Fetch dữ liệu hiện tại khi load trang
   useEffect(() => {
-    if (status.currentNumber !== prevNumber && prevNumber !== 0) {
-      setShouldAnimate(true);
-      const timer = setTimeout(() => setShouldAnimate(false), 1000);
-      return () => clearTimeout(timer);
-    }
-    setPrevNumber(status.currentNumber);
-  }, [status.currentNumber, prevNumber]);
+    const fetchCurrent = async () => {
+      try {
+        const res = await axios.get("http://localhost:8000/queue/current");
+        setStatus({
+          currentNumber: res.data.currentNumber,
+          nextNumbers: res.data.nextNumbers,
+          waitingCount: res.data.waitingCount
+        });
+      } catch (error) {
+        console.error("Error fetching current queue:", error);
+      }
+    };
+    fetchCurrent();
+  }, []);
 
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-gray-900 via-emerald-900 to-gray-900 flex items-center justify-center">
-        <div className="text-emerald-400 text-3xl">Đang tải...</div>
-      </div>
-    );
-  }
+  // Lắng nghe WebSocket
+  useEffect(() => {
+    const socket: Socket = io("http://localhost:8000");
+    socket.on("queue_update", (data) => {
+
+      setStatus(prev => ({
+        ...prev,
+        currentNumber: data.currentNumber ?? prev.currentNumber,
+        nextNumbers: data.nextNumbers || prev.nextNumbers,
+        waitingCount: data.waitingCount ?? prev.waitingCount
+      }));
+      // Hiệu ứng khi số thay đổi
+      setShouldAnimate(true);
+      setTimeout(() => setShouldAnimate(false), 1000);
+    });
+
+     return () => {
+      socket.off("queue_update"); // hủy listener
+      socket.disconnect(); // ngắt kết nối
+    };
+  }, []);
+  console.log("Rendering PublicDisplay with status:", status);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-emerald-900 to-gray-900 text-white flex items-center justify-center p-8">
@@ -52,48 +81,34 @@ export default function PublicDisplay() {
                 }`}
               >
                 <div className="text-9xl font-bold text-emerald-400 drop-shadow-2xl">
-                  #{status.currentNumber || '0'}
+                  #{status.currentNumber}
                 </div>
               </div>
             </div>
 
             <div className="grid grid-cols-2 gap-8">
-              <div className="bg-gray-900/80 rounded-2xl p-8 border border-gray-700">
-                <div className="text-gray-400 text-2xl mb-4 text-center">Số tiếp theo</div>
-                <div className="text-6xl font-bold text-center text-teal-400">
-                  #{status.waiting[0] || '-'}
-                </div>
-              </div>
-
-              <div className="bg-gray-900/80 rounded-2xl p-8 border border-gray-700">
-                <div className="text-gray-400 text-2xl mb-4 text-center">Đang chờ</div>
-                <div className="text-6xl font-bold text-center text-white">
-                  {status.totalQueue}
-                  <span className="text-2xl ml-3 text-gray-400">người</span>
-                </div>
-              </div>
-            </div>
-
-            {status.waiting.length > 1 && (
-              <div className="bg-gray-900/50 rounded-2xl p-8 border border-gray-700">
-                <div className="text-gray-400 text-xl mb-6 text-center">Hàng chờ</div>
-                <div className="flex flex-wrap justify-center gap-4">
-                  {status.waiting.slice(1, 11).map((num) => (
+              <div className="bg-gray-900/80 rounded-2xl p-8 border border-gray-700 text-center">
+                <div className="text-gray-400 text-2xl mb-4">Số tiếp theo</div>
+                <div className="flex justify-center gap-4 flex-wrap">
+                  {status.nextNumbers.slice(0, 5).map((num, idx) => (
                     <div
-                      key={num}
-                      className="px-6 py-4 bg-gray-800 text-gray-300 rounded-xl font-semibold text-2xl border border-gray-600"
+                      key={idx}
+                      className="text-4xl font-bold text-teal-400 px-4 py-2 bg-gray-800 rounded-xl border border-gray-700"
                     >
                       #{num}
                     </div>
                   ))}
-                  {status.waiting.length > 11 && (
-                    <div className="px-6 py-4 bg-gray-800 text-gray-400 rounded-xl font-semibold text-2xl border border-gray-600">
-                      +{status.waiting.length - 11}
-                    </div>
-                  )}
+                  {status.nextNumbers.length === 0 && <div className="text-4xl text-teal-400">-</div>}
                 </div>
               </div>
-            )}
+
+              <div className="bg-gray-900/80 rounded-2xl p-8 border border-gray-700 text-center">
+                <div className="text-gray-400 text-2xl mb-4">Đang chờ</div>
+                <div className="text-6xl font-bold text-white">
+                  {status.waitingCount} <span className="text-2xl ml-3 text-gray-400">người</span>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>

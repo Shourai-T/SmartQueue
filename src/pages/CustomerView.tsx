@@ -1,38 +1,65 @@
 import { useState, useEffect } from 'react';
+import axios from 'axios';
 import { User, Ticket } from 'lucide-react';
-import { useQueue } from '../hooks/useQueue';
-import { takeNumber } from '../services/queueService';
+import { io, Socket } from "socket.io-client";
+import { time } from 'console';
 
 export default function CustomerView() {
-  const { status, loading } = useQueue();
   const [myNumber, setMyNumber] = useState<number | null>(null);
   const [taking, setTaking] = useState(false);
+  const [data, setData] = useState({
+    currentNumber: 0,
+    nextNumbers: [] as number[],
+    waitingCount: 0,
+    waiting: [] as number[]
+  });
+   const fetchCurrent = async () => {
+      try {
+        const res = await axios.get("http://localhost:8000/queue/current");
+        setData({
+          currentNumber: res.data.currentNumber,
+          nextNumbers: res.data.nextNumbers,
+          waitingCount: res.data.waitingCount,
+          waiting: res.data.waiting
+        });
+      } catch (error) {
+        console.error("Error fetching current queue:", error);
+      }
+    };
 
+   useEffect(() => {
+    fetchCurrent();
+  }, []);
+  
   const handleTakeNumber = async () => {
     setTaking(true);
     try {
-      const number = await takeNumber();
-      setMyNumber(number);
+      const res = await axios.post("http://localhost:8000/queue",{source:'button'})
+      setMyNumber(res.data.queue.number);
+      await fetchCurrent();
+      setTimeout(() => {setMyNumber(null)}, 5000);
     } catch (error) {
       console.error('Error taking number:', error);
     } finally {
       setTaking(false);
     }
   };
+   useEffect(() => {
+  const socket: Socket = io("http://localhost:8000");
+  socket.on("queue_update", (update) => {
+    setData({
+      currentNumber: update.currentNumber,
+      nextNumbers: Array.isArray(update.nextNumbers) ? update.nextNumbers : [],
+      waiting: Array.isArray(update.waiting) ? update.waiting : [],
+      waitingCount: update.waitingCount ?? 0
+    });
+  });
+  return () => {
+    socket.disconnect();
+  };
+}, []);
 
-  // THÊM: Auto hide sau 5 giây
-  useEffect(() => {
-    if (myNumber) {
-      const timer = setTimeout(() => {
-        setMyNumber(null);
-      }, 5000); // 5 giây
-
-      // Cleanup khi component unmount hoặc myNumber thay đổi
-      return () => clearTimeout(timer);
-    }
-  }, [myNumber]);
-
-  if (loading) {
+  if (!data) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 flex items-center justify-center">
         <div className="text-emerald-400 text-xl">Đang tải...</div>
@@ -57,14 +84,14 @@ export default function CustomerView() {
                 <div>
                   <p className="text-gray-400 text-sm mb-2">Số hiện tại đang phục vụ</p>
                   <div className="text-6xl font-bold text-emerald-400">
-                    {status.currentNumber}
+                    {data.currentNumber}
                   </div>
                 </div>
 
                 <div className="border-t border-gray-700 pt-4">
                   <p className="text-gray-400 text-sm mb-2">Số tiếp theo</p>
                   <div className="text-3xl font-semibold text-teal-400">
-                    {status.waiting[0] || '-'}
+                    {data.waiting[0] || '-'}
                   </div>
                 </div>
               </div>
@@ -80,10 +107,10 @@ export default function CustomerView() {
                   #{myNumber}
                 </div>
                 <div className="text-center mt-3 text-gray-300">
-                  {myNumber === status.waiting[0] ? (
+                  {myNumber === data.waiting[0] ? (
                     <span className="text-emerald-400 font-semibold">Bạn sắp được phục vụ!</span>
-                  ) : status.waiting.includes(myNumber) ? (
-                    <span>Còn {status.waiting.indexOf(myNumber)} người trước bạn</span>
+                  ) : data.waiting.includes(myNumber) ? (
+                    <span>Còn {data.waiting.indexOf(myNumber)} người trước bạn</span>
                   ) : (
                     <span className="text-gray-500">Số của bạn đã được gọi</span>
                   )}
@@ -93,7 +120,7 @@ export default function CustomerView() {
 
             <div className="bg-gray-900 rounded-xl p-4 border border-gray-700">
               <div className="text-center text-gray-300">
-                <span className="text-2xl font-bold text-white">{status.totalQueue}</span>
+                <span className="text-2xl font-bold text-white">{data.waitingCount}</span>
                 <span className="text-sm ml-2">người đang chờ</span>
               </div>
             </div>
