@@ -18,7 +18,7 @@ let parser: ReadlineParser;
 let isReady = false;
 let lastCurrentNumber = 0;
 let lastNextNumber = 1;
-let lastWaitingCount = 0; // THÊM: theo dõi số người chờ
+let lastWaitingCount = 0;
 
 function connectSerial(): void {
   console.log(`🔌 Đang kết nối Arduino qua ${COM_PORT} @57600`);
@@ -55,22 +55,40 @@ function connectSerial(): void {
     setTimeout(connectSerial, 3000);
   });
 
+  // THÊM: Log mọi data nhận được
+  port.on('data', (data) => {
+    console.log('🔍 [RAW Serial]:', data.toString().replace(/\n/g, '\\n'));
+  });
+
   parser.on('data', handleArduinoMessage);
 }
 
 function sendToArduino(message: string): void {
   if (!isReady || !port || !port.isOpen) {
-    console.log('⚠️ Cổng chưa sẵn sàng, bỏ qua:', message);
+    console.error('❌ KHÔNG THỂ GỬI - Cổng chưa sẵn sàng:', message);
+    console.log('   isReady:', isReady);
+    console.log('   port exists:', !!port);
+    console.log('   port.isOpen:', port?.isOpen);
     return;
   }
-  port.write(message + '\n');
-  console.log(`📤 Gửi xuống Arduino: ${message}`);
+  
+  try {
+    port.write(message + '\n', (err) => {
+      if (err) {
+        console.error('❌ Lỗi ghi Serial:', err.message);
+      } else {
+        console.log(`✅ ĐÃ GỬI xuống Arduino: "${message}"`);
+      }
+    });
+  } catch (error) {
+    console.error('❌ Exception khi gửi:', error);
+  }
 }
 
 // ============ ARDUINO MESSAGE HANDLER ============
 async function handleArduinoMessage(line: string): Promise<void> {
   const msg = line.trim();
-  console.log(`📥 Nhận từ Arduino: ${msg}`);
+  console.log(`📥 [Parsed] Nhận từ Arduino: "${msg}"`);
   
   if (msg === 'REQ') {
     console.log('🔄 Arduino yêu cầu đồng bộ, gửi STATE...');
@@ -83,6 +101,14 @@ async function handleArduinoMessage(line: string): Promise<void> {
     if (!isNaN(ticketNumber)) {
       await createTicketFromArduino(ticketNumber);
     }
+  }
+
+  // Log confirm từ Arduino
+  if (msg.startsWith('Dang phuc vu:') || 
+      msg.startsWith('Cap nhat hang cho:') ||
+      msg.startsWith('Dong bo') ||
+      msg.startsWith('Da reset')) {
+    console.log('✅ Arduino confirm:', msg);
   }
 }
 
@@ -116,7 +142,6 @@ async function createTicketFromArduino(ticketNumber: number): Promise<void> {
   }
 }
 
-// THÊM: Hàm lấy số người chờ
 async function getWaitingCount(): Promise<number> {
   const { data: waitingTickets, error } = await supabase
     .from('queue_tickets')
@@ -141,13 +166,10 @@ async function sendCurrentStateToArduino(): Promise<void> {
 
     if (error) throw error;
 
-    // THÊM: Lấy số người chờ
     const waitingCount = await getWaitingCount();
-
     const currentNumber = config.current_number;
     const totalTickets = config.next_number - 1;
 
-    // THÊM: Gửi cả waiting count
     const stateMessage = `STATE current=${currentNumber};total=${totalTickets};waiting=${waitingCount}`;
     sendToArduino(stateMessage);
     
@@ -155,7 +177,7 @@ async function sendCurrentStateToArduino(): Promise<void> {
     
     lastCurrentNumber = currentNumber;
     lastNextNumber = config.next_number;
-    lastWaitingCount = waitingCount; // THÊM
+    lastWaitingCount = waitingCount;
   } catch (error) {
     console.error('❌ Lỗi gửi state:', error);
   }
@@ -163,35 +185,47 @@ async function sendCurrentStateToArduino(): Promise<void> {
 
 async function syncStateToArduino(currentNumber: number, nextNumber: number): Promise<void> {
   const totalTickets = nextNumber - 1;
-  
-  // THÊM: Lấy số người chờ mới nhất
   const waitingCount = await getWaitingCount();
   
-  console.log(`🔄 Đồng bộ state → Arduino: current=${currentNumber}, total=${totalTickets}, waiting=${waitingCount}`);
+  console.log(`🔄 ===== SYNC STATE TO ARDUINO =====`);
+  console.log(`   Current: ${currentNumber} (last: ${lastCurrentNumber})`);
+  console.log(`   Next: ${nextNumber} (last: ${lastNextNumber})`);
+  console.log(`   Waiting: ${waitingCount} (last: ${lastWaitingCount})`);
   
   if (currentNumber !== lastCurrentNumber) {
+    console.log(`📢 Cần gửi CALL ${currentNumber}`);
     sendToArduino(`CALL ${currentNumber}`);
     lastCurrentNumber = currentNumber;
+  } else {
+    console.log(`   Current không đổi, bỏ qua CALL`);
   }
   
   if (nextNumber !== lastNextNumber) {
+    console.log(`📢 Cần gửi TAKE ${totalTickets}`);
     sendToArduino(`TAKE ${totalTickets}`);
     lastNextNumber = nextNumber;
+  } else {
+    console.log(`   Next không đổi, bỏ qua TAKE`);
   }
 
-  // THÊM: Gửi cập nhật số người chờ
   if (waitingCount !== lastWaitingCount) {
+    console.log(`📢 Cần gửi QUEUE ${waitingCount}`);
     sendToArduino(`QUEUE ${waitingCount}`);
     lastWaitingCount = waitingCount;
+  } else {
+    console.log(`   Waiting không đổi, bỏ qua QUEUE`);
   }
+  
+  console.log(`===================================`);
 }
 
 // ============ REALTIME SUBSCRIPTION ============
 function subscribeToSupabase(): void {
   console.log('👂 Đang lắng nghe thay đổi từ Supabase...');
+  console.log('🌐 URL:', process.env.VITE_SUPABASE_URL);
 
   // Subscribe vào queue_config
-  supabase
+  const configChannel = supabase
     .channel('queue_config_changes')
     .on(
       'postgres_changes',
@@ -201,42 +235,55 @@ function subscribeToSupabase(): void {
         table: 'queue_config'
       },
       async (payload: any) => {
+        console.log('🔔 ========== CONFIG UPDATE EVENT ==========');
+        console.log('📦 Payload:', JSON.stringify(payload, null, 2));
+        
         const newCurrent = payload.new.current_number;
         const newNext = payload.new.next_number;
         
-        console.log(`🔔 Config thay đổi từ web: current=${newCurrent}, next=${newNext}`);
+        console.log(`🔔 Config thay đổi: current=${newCurrent}, next=${newNext}`);
         
         if (newCurrent === 0 && newNext === 1) {
-          console.log('🔴 Phát hiện RESET từ web');
+          console.log('🔴 Phát hiện RESET từ web → Gửi RESET');
           sendToArduino('RESET');
           lastCurrentNumber = 0;
           lastNextNumber = 1;
           lastWaitingCount = 0;
         } else {
+          console.log('🔄 Gọi syncStateToArduino...');
           await syncStateToArduino(newCurrent, newNext);
         }
+        console.log('==========================================');
       }
     )
-    .subscribe((status: string) => {
+    .subscribe((status: string, err?: any) => {
+      console.log('📡 Config channel status:', status);
+      if (err) {
+        console.error('❌ Config channel error:', err);
+      }
       if (status === 'SUBSCRIBED') {
-        console.log('✅ Đã subscribe config channel');
+        console.log('✅ ĐÃ SUBSCRIBE CONFIG CHANNEL THÀNH CÔNG');
+      }
+      if (status === 'CHANNEL_ERROR') {
+        console.error('❌ Channel error - Thử lại...');
       }
     });
 
-  // THÊM: Subscribe vào queue_tickets để theo dõi số người chờ
-  supabase
+  // Subscribe vào queue_tickets
+  const ticketsChannel = supabase
     .channel('queue_tickets_changes')
     .on(
       'postgres_changes',
       {
-        event: '*', // Lắng nghe INSERT, UPDATE, DELETE
+        event: '*',
         schema: 'public',
         table: 'queue_tickets'
       },
       async (payload: any) => {
-        console.log(`🎫 Tickets thay đổi:`, payload.eventType);
+        console.log('🎫 ========== TICKETS EVENT ==========');
+        console.log('📦 Event type:', payload.eventType);
+        console.log('📦 Payload:', JSON.stringify(payload, null, 2));
         
-        // Lấy config hiện tại để sync
         const { data: config } = await supabase
           .from('queue_config')
           .select('*')
@@ -244,15 +291,26 @@ function subscribeToSupabase(): void {
           .single();
 
         if (config) {
+          console.log('🔄 Sync sau khi tickets thay đổi...');
           await syncStateToArduino(config.current_number, config.next_number);
         }
+        console.log('=====================================');
       }
     )
-    .subscribe((status: string) => {
+    .subscribe((status: string, err?: any) => {
+      console.log('📡 Tickets channel status:', status);
+      if (err) {
+        console.error('❌ Tickets channel error:', err);
+      }
       if (status === 'SUBSCRIBED') {
-        console.log('✅ Đã subscribe tickets channel');
+        console.log('✅ ĐÃ SUBSCRIBE TICKETS CHANNEL THÀNH CÔNG');
       }
     });
+
+  // THÊM: Heartbeat
+  setInterval(() => {
+    console.log('💓 Heartbeat - isReady:', isReady, '| port.isOpen:', port?.isOpen);
+  }, 30000);
 }
 
 // ============ INITIALIZATION ============
@@ -282,10 +340,10 @@ async function initializeSystem(): Promise<void> {
 }
 
 // ============ START BRIDGE ============
-console.log('🚀 Khởi động Bridge Arduino ↔ Web');
+console.log('🚀 ========== KHỞI ĐỘNG BRIDGE ==========');
 console.log(`📍 COM Port: ${COM_PORT}`);
 console.log(`🌐 Supabase: ${process.env.VITE_SUPABASE_URL}`);
-console.log('');
+console.log('==========================================\n');
 
 connectSerial();
 
